@@ -1,110 +1,114 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Narrador de Texto para Áudio</title>
+  <title>Gerador e Downloader de Narração MP3</title>
   <style>
-    body { font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; background: #f4f4f9; }
-    h2 { color: #333; text-align: center; }
-    textarea { width: 100%; height: 150px; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 16px; box-sizing: border-box; }
-    select, button { width: 100%; margin-top: 15px; padding: 12px; border-radius: 8px; font-size: 16px; cursor: pointer; border: none; }
-    select { background: #fff; border: 1px solid #ccc; }
-    .btn-play { background-color: #007bff; color: white; }
-    .btn-download { background-color: #28a745; color: white; margin-top: 10px; }
-    button:disabled { background-color: #ccc; cursor: not-allowed; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 20px;
+      background-color: #f4f4f9;
+    }
+    h2 { color: #333; margin-bottom: 20px; }
+    textarea {
+      width: 100%;
+      height: 140px;
+      padding: 12px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 15px;
+      resize: vertical;
+    }
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 14px 20px;
+      font-size: 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-top: 12px;
+      width: 100%;
+      font-weight: bold;
+    }
+    button:hover { background-color: #0056b3; }
+    .card-audio {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-top: 20px;
+    }
+    audio { width: 100%; margin-bottom: 12px; }
+    .btn-download {
+      display: block;
+      text-align: center;
+      background-color: #28a745;
+      color: white;
+      text-decoration: none;
+      padding: 12px;
+      border-radius: 6px;
+      font-weight: bold;
+    }
+    .btn-download:hover { background-color: #218838; }
   </style>
 </head>
 <body>
 
-  <h2>Gerador de Narração</h2>
-  <textarea id="texto" placeholder="Digite ou cole seu texto aqui..."></textarea>
-  
-  <select id="vozes">
-    <option value="">Carregando vozes...</option>
-  </select>
+  <h2>Gerador de Narração MP3</h2>
+  <textarea id="texto" placeholder="Digite ou cole seu texto aqui (recomendado até 200 caracteres por bloco para respostas mais rápidas)..."></textarea>
+  <button id="btnGerar" onclick="gerarAudio()">Gerar Áudio MP3</button>
 
-  <button class="btn-play" onclick="ouvirTexto()">Ouvir Texto</button>
-  <button class="btn-download" id="btnBaixar" onclick="gerarEBaixarAudio()">Gerar e Baixar Áudio</button>
+  <div id="resultado" class="card-audio" style="display: none;">
+    <h3>Seu áudio está pronto!</h3>
+    <audio id="player" controls></audio>
+    <a id="btnDownload" class="btn-download" download="narracao.mp3">Baixar Arquivo MP3</a>
+  </div>
 
   <script>
-    const synth = window.speechSynthesis;
-    const selectVozes = document.getElementById('vozes');
+    async function gerarAudio() {
+      const texto = document.getElementById('texto').value.trim();
+      const btnGerar = document.getElementById('btnGerar');
+      const resultado = document.getElementById('resultado');
+      const player = document.getElementById('player');
+      const btnDownload = document.getElementById('btnDownload');
 
-    // Carrega as vozes disponíveis no navegador
-    function carregarVozes() {
-      const vozes = synth.getVoices();
-      selectVozes.innerHTML = '';
-      
-      // Filtra de preferência vozes em português
-      const vozesPT = vozes.filter(v => v.lang.includes('pt'));
-      const listaExibicao = vozesPT.length > 0 ? vozesPT : vozes;
-
-      listaExibicao.forEach((voz, index) => {
-        const option = document.createElement('option');
-        option.textContent = `${voz.name} (${voz.lang})`;
-        option.setAttribute('data-name', voz.name);
-        selectVozes.appendChild(option);
-      });
-    }
-
-    if (synth.onvoiceschanged !== undefined) {
-      synth.onvoiceschanged = carregarVozes;
-    }
-    carregarVozes();
-
-    function ouvirTexto() {
-      if (synth.speaking) synth.cancel();
-      const texto = document.getElementById('texto').value;
-      if (!texto) return alert('Digite algum texto!');
-
-      const utterance = new SpeechSynthesisUtterance(texto);
-      const vozSelecionada = selectVozes.selectedOptions[0]?.getAttribute('data-name');
-      
-      if (vozSelecionada) {
-        utterance.voice = synth.getVoices().find(v => v.name === vozSelecionada);
+      if (!texto) {
+        alert('Por favor, digite um texto!');
+        return;
       }
-      
-      synth.speak(utterance);
-    }
 
-    // Grava o áudio gerado pelo navegador e disponibiliza o download
-    async function gerarEBaixarAudio() {
-      const texto = document.getElementById('texto').value;
-      if (!texto) return alert('Digite algum texto!');
+      btnGerar.innerText = 'Gerando MP3...';
+      btnGerar.disabled = true;
 
       try {
-        // Captura a saída de áudio do sistema/navegador via MediaRecorder
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
-        const chunks = [];
+        // Endpoint público de conversão de texto em voz do Google Translate
+        const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(texto)}&tl=pt-BR&client=tw-ob`;
+        
+        // Faz a requisição e converte em Blob binário
+        const response = await fetch(url);
+        const blob = await response.blob();
+        
+        // Cria uma URL local para o arquivo MP3
+        const audioUrl = URL.createObjectURL(blob);
 
-        mediaRecorder.ondataavailable = e => chunks.push(e.data);
-        mediaRecorder.onstop = () => {
-          const blob = new Blob(chunks, { type: 'audio/webm' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = 'narracao.webm';
-          a.click();
-          stream.getTracks().forEach(track => track.stop());
-        };
+        player.src = audioUrl;
+        btnDownload.href = audioUrl;
 
-        mediaRecorder.start();
-        ouvirTexto();
-
-        // Para a gravação ao término da fala
-        const checarFim = setInterval(() => {
-          if (!synth.speaking) {
-            clearInterval(checarFim);
-            setTimeout(() => mediaRecorder.stop(), 500);
-          }
-        }, 300);
-
-      } catch (err) {
-        alert('Permita o uso do microfone para salvar o áudio gerado.');
+        resultado.style.display = 'block';
+      } catch (error) {
+        alert('Ocorreu um erro ao gerar o áudio. Tente reduzir o tamanho do texto.');
+        console.error(error);
+      } finally {
+        btnGerar.innerText = 'Gerar Áudio MP3';
+        btnGerar.disabled = false;
       }
     }
   </script>
+
 </body>
 </html>
