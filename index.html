@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Gerador de Narração MP3</title>
+  <!-- Biblioteca lamejs para conversão local para MP3 -->
+  <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -36,6 +38,7 @@
       font-weight: bold;
     }
     button:hover { background-color: #0056b3; }
+    button:disabled { background-color: #aaa; cursor: not-allowed; }
     .card-audio {
       background: white;
       padding: 20px;
@@ -66,12 +69,13 @@
   <div id="resultado" class="card-audio" style="display: none;">
     <h3>Seu áudio está pronto!</h3>
     <audio id="player" controls></audio>
-    <a id="btnDownload" class="btn-download" target="_blank" download="narracao.mp3">Baixar Arquivo MP3</a>
+    <a id="btnDownload" class="btn-download" download="narracao.mp3">Baixar Arquivo MP3</a>
   </div>
 
   <script>
-    function gerarAudio() {
+    async function gerarAudio() {
       const texto = document.getElementById('texto').value.trim();
+      const btnGerar = document.getElementById('btnGerar');
       const resultado = document.getElementById('resultado');
       const player = document.getElementById('player');
       const btnDownload = document.getElementById('btnDownload');
@@ -81,13 +85,86 @@
         return;
       }
 
-      // Endpoint usando VoiceRSS (serviço público de TTS sem bloqueio de CORS)
-      const urlAudio = `https://api.voicerss.org/?key=c72f10d65ff945b682aa9c09d6c7fb4d&hl=pt-br&c=MP3&src=${encodeURIComponent(texto)}`;
+      btnGerar.innerText = 'Gerando MP3...';
+      btnGerar.disabled = true;
 
-      player.src = urlAudio;
-      btnDownload.href = urlAudio;
-      resultado.style.display = 'block';
+      try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const destination = audioContext.createMediaStreamDestination();
+        const mediaRecorder = new MediaRecorder(destination.stream);
+        const chunks = [];
+
+        mediaRecorder.ondataavailable = e => chunks.push(e.data);
+
+        mediaRecorder.onstop = async () => {
+          const blobWebm = new Blob(chunks, { type: 'audio/webm' });
+          const arrayBuffer = await blobWebm.arrayBuffer();
+          const decodedAudio = await audioContext.decodeAudioData(arrayBuffer);
+
+          // Converte para MP3 real usando lamejs
+          const mp3Blob = bufferToMp3(decodedAudio);
+          const mp3Url = URL.createObjectURL(mp3Blob);
+
+          player.src = mp3Url;
+          btnDownload.href = mp3Url;
+          resultado.style.display = 'block';
+
+          btnGerar.innerText = 'Gerar Áudio MP3';
+          btnGerar.disabled = false;
+          audioContext.close();
+        };
+
+        const utterance = new SpeechSynthesisUtterance(texto);
+        utterance.lang = 'pt-BR';
+
+        // Garante a escolha de uma voz em Português
+        const voices = speechSynthesis.getVoices();
+        const ptVoice = voices.find(v => v.lang.includes('pt')) || voices[0];
+        if (ptVoice) utterance.voice = ptVoice;
+
+        mediaRecorder.start();
+        window.speechSynthesis.speak(utterance);
+
+        utterance.onend = () => {
+          setTimeout(() => mediaRecorder.stop(), 300);
+        };
+
+      } catch (err) {
+        alert('Erro ao processar o áudio. Tente novamente.');
+        console.error(err);
+        btnGerar.innerText = 'Gerar Áudio MP3';
+        btnGerar.disabled = false;
+      }
     }
+
+    function bufferToMp3(audioBuffer) {
+      const channels = audioBuffer.numberOfChannels;
+      const sampleRate = audioBuffer.sampleRate;
+      const mp3encoder = new lamejs.Mp3Encoder(channels, sampleRate, 128);
+      const samples = audioBuffer.getChannelData(0);
+      const sampleBlockSize = 1152;
+      const mp3Data = [];
+
+      const convertedSamples = new Int16Array(samples.length);
+      for (let i = 0; i < samples.length; i++) {
+        let s = Math.max(-1, Math.min(1, samples[i]));
+        convertedSamples[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+
+      for (let i = 0; i < convertedSamples.length; i += sampleBlockSize) {
+        const sampleChunk = convertedSamples.subarray(i, i + sampleBlockSize);
+        const mp3buf = mp3encoder.encodeBuffer(sampleChunk);
+        if (mp3buf.length > 0) mp3Data.push(mp3buf);
+      }
+
+      const mp3buf = mp3encoder.flush();
+      if (mp3buf.length > 0) mp3Data.push(mp3buf);
+
+      return new Blob(mp3Data, { type: 'audio/mp3' });
+    }
+
+    // Carrega as vozes do navegador
+    window.speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
   </script>
 
 </body>
