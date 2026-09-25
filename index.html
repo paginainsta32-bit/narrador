@@ -116,10 +116,10 @@
     <div class="grid">
       <div>
         <label for="vozes">Voz:</label>
-        <select id="vozes"><option>A carregar vozes...</option></select>
+        <select id="vozes"><option>Carregando vozes...</option></select>
       </div>
       <div>
-        <label for="formato">Formato do Ficheiro:</label>
+        <label for="formato">Formato do Arquivo:</label>
         <select id="formato">
           <option value="mp3">MP3 (.mp3)</option>
           <option value="wav">WAV (.wav)</option>
@@ -162,12 +162,10 @@
     const player = document.getElementById('player');
     let vozesDisponiveis = [];
 
-    // Carrega as vozes do dispositivo/sistema
     function carregarVozes() {
       vozesDisponiveis = synth.getVoices();
       selectVozes.innerHTML = '';
 
-      // Ordena colocando vozes em Português no topo
       vozesDisponiveis.sort((a, b) => {
         const aPT = a.lang.includes('pt');
         const bPT = b.lang.includes('pt');
@@ -188,29 +186,26 @@
       speechSynthesis.onvoiceschanged = carregarVozes;
     }
 
-    // Atualiza os indicadores dinâmicos de velocidade e tom
     inputVelocidade.oninput = () => valVelocidade.textContent = `${inputVelocidade.value}x`;
     inputTom.oninput = () => valTom.textContent = inputTom.value;
 
-    // Apenas OUVIR o áudio no navegador
     function ouvirAudio() {
       const texto = document.getElementById('texto').value.trim();
       if (!texto) return alert('Por favor, digite um texto!');
 
-      synth.cancel(); // Para qualquer leitura anterior
+      synth.cancel();
 
       const utterance = new SpeechSynthesisUtterance(texto);
       utterance.voice = vozesDisponiveis[selectVozes.value];
       utterance.rate = parseFloat(inputVelocidade.value);
       utterance.pitch = parseFloat(inputTom.value);
 
-      utterance.onstart = () => statusDiv.textContent = 'A reproduzir áudio...';
+      utterance.onstart = () => statusDiv.textContent = 'Reproduzindo áudio...';
       utterance.onend = () => statusDiv.textContent = '';
       
       synth.speak(utterance);
     }
 
-    // PROCESSAR E BAIXAR (MP3 ou WAV)
     async function gerarEBaixar() {
       const texto = document.getElementById('texto').value.trim();
       if (!texto) return alert('Por favor, digite um texto!');
@@ -218,66 +213,56 @@
       const formato = document.getElementById('formato').value;
       const btnBaixar = document.getElementById('btnBaixar');
       btnBaixar.disabled = true;
-      statusDiv.textContent = 'A processar ficheiro de áudio...';
+      statusDiv.textContent = 'Gerando arquivo de áudio...';
 
       synth.cancel();
 
       try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const dest = audioCtx.createMediaStreamDestination();
-        const recorder = new MediaRecorder(dest.stream);
-        const chunks = [];
+        // Faz a requisição TTS via serviço direto para garantir a geração e download do arquivo
+        const vozSelecionada = vozesDisponiveis[selectVozes.value];
+        const lang = vozSelecionada ? vozSelecionada.lang : 'pt-BR';
+        
+        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(texto)}&tl=${lang}&client=tw-ob`;
+        const res = await fetch(ttsUrl);
+        const audioBlob = await res.blob();
 
-        recorder.ondataavailable = e => chunks.push(e.data);
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const arrayBuffer = await audioBlob.arrayBuffer();
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-        recorder.onstop = async () => {
-          const blobWebm = new Blob(chunks, { type: 'audio/webm' });
-          const arrayBuffer = await blobWebm.arrayBuffer();
-          const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        let finalBlob;
+        if (formato === 'mp3') {
+          finalBlob = bufferToMp3(audioBuffer);
+        } else {
+          finalBlob = bufferToWav(audioBuffer);
+        }
 
-          let finalBlob;
-          if (formato === 'mp3') {
-            finalBlob = bufferToMp3(audioBuffer);
-          } else {
-            finalBlob = bufferToWav(audioBuffer);
-          }
+        const url = URL.createObjectURL(finalBlob);
+        player.src = url;
+        player.style.display = 'block';
 
-          const url = URL.createObjectURL(finalBlob);
-          player.src = url;
-          player.style.display = 'block';
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `narracao.${formato}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
 
-          // Executa o download automático
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `narracao.${formato}`;
-          a.click();
-
-          statusDiv.textContent = 'Download concluído!';
-          btnBaixar.disabled = false;
-          audioCtx.close();
-        };
-
-        const utterance = new SpeechSynthesisUtterance(texto);
-        utterance.voice = vozesDisponiveis[selectVozes.value];
-        utterance.rate = parseFloat(inputVelocidade.value);
-        utterance.pitch = parseFloat(inputTom.value);
-
-        recorder.start();
-        synth.speak(utterance);
-
-        utterance.onend = () => {
-          setTimeout(() => recorder.stop(), 300);
-        };
+        statusDiv.textContent = 'Download concluído!';
+        btnBaixar.disabled = false;
+        audioContext.close();
 
       } catch (err) {
-        alert('Erro ao converter o áudio.');
-        console.error(err);
-        statusDiv.textContent = '';
+        // Fallback direto caso o fetch seja restrito no navegador
+        const lang = vozesDisponiveis[selectVozes.value] ? vozesDisponiveis[selectVozes.value].lang : 'pt-BR';
+        const downloadDirectUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(texto)}&tl=${lang}&client=tw-ob`;
+        
+        window.open(downloadDirectUrl, '_blank');
+        statusDiv.textContent = 'Download iniciado em nova aba!';
         btnBaixar.disabled = false;
       }
     }
 
-    // Conversor de Áudio Buffer para MP3 (LameJS)
     function bufferToMp3(audioBuffer) {
       const channels = audioBuffer.numberOfChannels;
       const sampleRate = audioBuffer.sampleRate;
@@ -304,22 +289,21 @@
       return new Blob(mp3Data, { type: 'audio/mp3' });
     }
 
-    // Conversor de Áudio Buffer para WAV
     function bufferToWav(abuffer) {
       const numOfChan = abuffer.numberOfChannels,
             length = abuffer.length * numOfChan * 2 + 44,
             buffer = new ArrayBuffer(length),
             view = new DataView(buffer),
-            channels = [], i = 0, sampleRate = abuffer.sampleRate;
+            channels = [], sampleRate = abuffer.sampleRate;
       let offset = 0, pos = 0;
 
       function setUint16(data) { view.setUint16(offset, data, true); offset += 2; }
       function setUint32(data) { view.setUint32(offset, data, true); offset += 4; }
 
-      setUint32(0x46464952); // "RIFF"
+      setUint32(0x46464952);
       setUint32(length - 8);
-      setUint32(0x45564157); // "WAVE"
-      setUint32(0x20746d66); // "fmt "
+      setUint32(0x45564157);
+      setUint32(0x20746d66);
       setUint32(16);
       setUint16(1);
       setUint16(numOfChan);
@@ -327,7 +311,7 @@
       setUint32(sampleRate * 2 * numOfChan);
       setUint16(numOfChan * 2);
       setUint16(16);
-      setUint32(0x61746164); // "data"
+      setUint32(0x61746164);
       setUint32(length - offset - 4);
 
       for (let i = 0; i < abuffer.numberOfChannels; i++) channels.push(abuffer.getChannelData(i));
