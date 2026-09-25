@@ -1,0 +1,110 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Narrador de Texto para Áudio</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; background: #f4f4f9; }
+    h2 { color: #333; text-align: center; }
+    textarea { width: 100%; height: 150px; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 16px; box-sizing: border-box; }
+    select, button { width: 100%; margin-top: 15px; padding: 12px; border-radius: 8px; font-size: 16px; cursor: pointer; border: none; }
+    select { background: #fff; border: 1px solid #ccc; }
+    .btn-play { background-color: #007bff; color: white; }
+    .btn-download { background-color: #28a745; color: white; margin-top: 10px; }
+    button:disabled { background-color: #ccc; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+  <h2>Gerador de Narração</h2>
+  <textarea id="texto" placeholder="Digite ou cole seu texto aqui..."></textarea>
+  
+  <select id="vozes">
+    <option value="">Carregando vozes...</option>
+  </select>
+
+  <button class="btn-play" onclick="ouvirTexto()">Ouvir Texto</button>
+  <button class="btn-download" id="btnBaixar" onclick="gerarEBaixarAudio()">Gerar e Baixar Áudio</button>
+
+  <script>
+    const synth = window.speechSynthesis;
+    const selectVozes = document.getElementById('vozes');
+
+    // Carrega as vozes disponíveis no navegador
+    function carregarVozes() {
+      const vozes = synth.getVoices();
+      selectVozes.innerHTML = '';
+      
+      // Filtra de preferência vozes em português
+      const vozesPT = vozes.filter(v => v.lang.includes('pt'));
+      const listaExibicao = vozesPT.length > 0 ? vozesPT : vozes;
+
+      listaExibicao.forEach((voz, index) => {
+        const option = document.createElement('option');
+        option.textContent = `${voz.name} (${voz.lang})`;
+        option.setAttribute('data-name', voz.name);
+        selectVozes.appendChild(option);
+      });
+    }
+
+    if (synth.onvoiceschanged !== undefined) {
+      synth.onvoiceschanged = carregarVozes;
+    }
+    carregarVozes();
+
+    function ouvirTexto() {
+      if (synth.speaking) synth.cancel();
+      const texto = document.getElementById('texto').value;
+      if (!texto) return alert('Digite algum texto!');
+
+      const utterance = new SpeechSynthesisUtterance(texto);
+      const vozSelecionada = selectVozes.selectedOptions[0]?.getAttribute('data-name');
+      
+      if (vozSelecionada) {
+        utterance.voice = synth.getVoices().find(v => v.name === vozSelecionada);
+      }
+      
+      synth.speak(utterance);
+    }
+
+    // Grava o áudio gerado pelo navegador e disponibiliza o download
+    async function gerarEBaixarAudio() {
+      const texto = document.getElementById('texto').value;
+      if (!texto) return alert('Digite algum texto!');
+
+      try {
+        // Captura a saída de áudio do sistema/navegador via MediaRecorder
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream);
+        const chunks = [];
+
+        mediaRecorder.ondataavailable = e => chunks.push(e.data);
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(chunks, { type: 'audio/webm' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'narracao.webm';
+          a.click();
+          stream.getTracks().forEach(track => track.stop());
+        };
+
+        mediaRecorder.start();
+        ouvirTexto();
+
+        // Para a gravação ao término da fala
+        const checarFim = setInterval(() => {
+          if (!synth.speaking) {
+            clearInterval(checarFim);
+            setTimeout(() => mediaRecorder.stop(), 500);
+          }
+        }, 300);
+
+      } catch (err) {
+        alert('Permita o uso do microfone para salvar o áudio gerado.');
+      }
+    }
+  </script>
+</body>
+</html>
